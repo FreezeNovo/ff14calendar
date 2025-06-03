@@ -1,7 +1,7 @@
 {
   "name": "koishi-plugin-ff14calendar",
   "description": "一个适用于 [Koishi](https://koishi.chat/) 的 FFXIV 日历推送插件，也支持其他 Webcal/ics 日历订阅，自动推送和手动查询活动，兼容 QQ（OneBot）、Discord 等多平台。",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "main": "lib/index.js",
   "typings": "lib/index.d.ts",
   "files": [
