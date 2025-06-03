@@ -140,6 +140,7 @@ export function apply(ctx: Context, config: Config) {
   ctx
     .command('webcal.today')
     .alias('最近活动')
+    .channelFields(['id'])// 允许在群聊/频道使用
     .action(async () => {
       logger.info('手动指令触发，开始获取日历事项')
       try {
