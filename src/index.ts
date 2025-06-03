@@ -144,20 +144,8 @@ export function apply(ctx: Context, config: Config) {
       logger.info('手动指令触发，开始获取日历事项')
       try {
         const message = await getTodayEvents(config.webcalUrl, config.messageTemplate, logger, config.proxy)
-        const target = parseTarget(config.targetId)
-        if (target) {
-          const { platform, id } = target
-          const bot = ctx.bots.find(bot => bot.platform === platform)
-          if (bot) {
-            await bot.sendMessage(id, message)
-            return '已发送到 ' + platform + ':' + id
-          } else {
-            return '未找到平台 ' + platform + ' 的 bot，无法发送消息\n\n' + message
-          }
-        } else {
-          // targetId 未配置，直接返回消息内容
-          return message
-        }
+        // 只返回内容，不推送到 targetId
+        return message
       } catch (err: any) {
         logger.error('指令执行异常: %o', err)
         return '发生未知错误: ' + (err?.message || err)
