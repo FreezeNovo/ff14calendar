@@ -1,5 +1,5 @@
 import { Context, Schema } from 'koishi'
-import cron from 'node-cron'
+import cron, { ScheduledTask }  from 'node-cron'
 import axios from 'axios'
 import ical from 'ical'
 import fs from 'fs'
@@ -119,9 +119,19 @@ function parseTarget(targetId?: string) {
   return { platform, id }
 }
 
+let scheduledTask: ScheduledTask
+
 export function apply(ctx: Context, config: Config) {
   const logger = ctx.logger('webcal')
-  cron.schedule(config.cronTime, async () => {
+
+  // 校验 cron 表达式
+  if (!cron.validate(config.cronTime)) {
+    logger.error('定时任务未注册，cron 表达式无效: %s', config.cronTime)
+    return
+  }
+
+  if (scheduledTask) scheduledTask.stop()
+  scheduledTask = cron.schedule(config.cronTime, async () => {
     logger.info('定时任务触发，开始获取并发送日历事项')
     const message = await getTodayEvents(config.webcalUrl, config.messageTemplate, logger, config.proxy)
     let sent = false
