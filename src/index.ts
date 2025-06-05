@@ -7,7 +7,7 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 
 export interface Config {
   webcalUrl: string
-  targetId: string // 改为 platform:id 格式
+  targetId: string[] // 只允许数组
   cronTime: string
   messageTemplate: string
   proxy?: string
@@ -15,7 +15,9 @@ export interface Config {
 
 export const Config: Schema<Config> = Schema.object({
   webcalUrl: Schema.string().description('Webcal/ics 日历订阅地址（支持 http/https/webcal）'),
-  targetId: Schema.string().description('目标频道/群号，格式如 onebot:123456789 或 discord:频道ID'),
+  targetId: Schema.array(Schema.string())
+    .role('textarea')
+    .description('目标频道/群号，每行一个，格式如 onebot:123456789 或 discord:频道ID'),
   cronTime: Schema.string().default('0 8 * * *').description('定时任务的 cron 表达式（如每天8点：0 8 * * *）'),
   messageTemplate: Schema.string().default('{summary}\n开始时间: {start}\n结束时间: {end}\n地点: {location}')
     .description('输出内容模板，可用变量：{summary}、{start}、{end}、{location}'),
@@ -122,25 +124,30 @@ export function apply(ctx: Context, config: Config) {
   cron.schedule(config.cronTime, async () => {
     logger.info('定时任务触发，开始获取并发送日历事项')
     const message = await getTodayEvents(config.webcalUrl, config.messageTemplate, logger, config.proxy)
-    const target = parseTarget(config.targetId)
-    if (target) {
-      const { platform, id } = target
-      const bot = ctx.bots.find(bot => bot.platform === platform)
-      if (bot) {
-        await bot.sendMessage(id, message)
-        logger.info('日历事项已发送到 %s 平台: %s', platform, id)
-      } else {
-        logger.error('未找到平台 %s 的 bot，无法发送消息', platform)
+    let sent = false
+    for (const t of config.targetId) {
+      const target = parseTarget(t)
+      if (target) {
+        const { platform, id } = target
+        const bot = ctx.bots.find(bot => bot.platform === platform)
+        if (bot) {
+          await bot.sendMessage(id, message)
+          logger.info('日历事项已发送到 %s 平台: %s', platform, id)
+          sent = true
+        } else {
+          logger.error('未找到平台 %s 的 bot，无法发送消息', platform)
+        }
       }
-    } else {
-      logger.warn('未配置 targetId，定时任务仅生成消息但未发送。')
+    }
+    if (!sent) {
+      logger.warn('未配置有效 targetId，定时任务仅生成消息但未发送。')
     }
   })
 
   ctx
     .command('webcal.today')
     .alias('最近活动')
-    .channelFields(['id'])// 允许在群聊/频道使用
+    .channelFields(['id'])
     .action(async () => {
       logger.info('手动指令触发，开始获取日历事项')
       try {
