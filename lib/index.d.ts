@@ -1,7 +1,7 @@
 import { Context, Schema } from 'koishi';
 export interface Config {
     webcalUrl: string;
-    targetId: string;
+    targetId: string[];
     cronTime: string;
     messageTemplate: string;
     proxy?: string;
