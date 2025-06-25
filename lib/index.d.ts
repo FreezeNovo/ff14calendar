@@ -5,6 +5,7 @@ export interface Config {
     cronTime: string;
     messageTemplate: string;
     proxy?: string;
+    upcomingLimit?: number;
 }
 export declare const Config: Schema<Config>;
 export declare function apply(ctx: Context, config: Config): void;

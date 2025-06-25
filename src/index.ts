@@ -1,5 +1,6 @@
 import { Context, Schema } from 'koishi'
-import cron, { ScheduledTask }  from 'node-cron'
+// import cron, { ScheduledTask }  from 'node-cron' // 移除 node-cron
+import later from 'later' // 新增
 import axios from 'axios'
 import ical from 'ical'
 import fs from 'fs'
@@ -7,10 +8,11 @@ import { HttpsProxyAgent } from 'https-proxy-agent'
 
 export interface Config {
   webcalUrl: string
-  targetId: string[] // 只允许数组
+  targetId: string[]
   cronTime: string
   messageTemplate: string
   proxy?: string
+  upcomingLimit?: number // 新增
 }
 
 export const Config: Schema<Config> = Schema.object({
@@ -22,6 +24,7 @@ export const Config: Schema<Config> = Schema.object({
   messageTemplate: Schema.string().default('{summary}\n开始时间: {start}\n结束时间: {end}\n地点: {location}')
     .description('输出内容模板，可用变量：{summary}、{start}、{end}、{location}'),
   proxy: Schema.string().description('可选，访问日历时使用的 http/https 代理地址（如 http://127.0.0.1:7890）').required(false),
+  upcomingLimit: Schema.number().default(3).description('即将开始的活动显示数量'), // 新增
 })
 
 interface SimpleLogger {
@@ -33,7 +36,8 @@ async function getTodayEvents(
   webcalUrl: string,
   messageTemplate: string,
   logger: SimpleLogger,
-  proxy?: string
+  proxy?: string,
+  upcomingLimit: number = 3 // 新增参数，默认3
 ): Promise<string> {
   try {
     logger.info('开始获取日历数据...')
@@ -66,9 +70,9 @@ async function getTodayEvents(
       }
     }
 
-    // 对即将进行的活动按开始时间排序，取最近的 3 个（可自定义数量）
+    // 对即将进行的活动按开始时间排序，取最近的 N 个
     upcomingEvents.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime())
-    const upcomingToShow = upcomingEvents.slice(0, 3)
+    const upcomingToShow = upcomingEvents.slice(0, upcomingLimit)
 
     let result = ''
     if (ongoingEvents.length) {
@@ -119,21 +123,38 @@ function parseTarget(targetId?: string) {
   return { platform, id }
 }
 
-let scheduledTask: ScheduledTask
+let scheduledTask: any // 用于保存 later 的定时器
 
 export function apply(ctx: Context, config: Config) {
   const logger = ctx.logger('webcal')
 
-  // 校验 cron 表达式
-  if (!cron.validate(config.cronTime)) {
-    logger.error('定时任务未注册，cron 表达式无效: %s', config.cronTime)
+  // 支持 later 的 cron 或自然语言表达式
+  let sched
+  try {
+    // 判断是否为自然语言（如包含 at、every、on 等关键词）
+    if (/at |every |on |after |before /i.test(config.cronTime)) {
+      sched = later.parse.text(config.cronTime)
+    } else {
+      // 默认按 cron 解析（支持 5/6 位，true 表示有秒位）
+      sched = later.parse.cron(config.cronTime, true)
+    }
+    if (!sched.schedules.length) throw new Error('解析失败')
+  } catch (e) {
+    logger.error('定时任务未注册，时间表达式无效: %s', config.cronTime)
     return
   }
 
-  if (scheduledTask) scheduledTask.stop()
-  scheduledTask = cron.schedule(config.cronTime, async () => {
+  if (scheduledTask) scheduledTask.clear()
+  logger.info('定时任务已注册，表达式: %s', config.cronTime)
+  scheduledTask = later.setInterval(async () => {
     logger.info('定时任务触发，开始获取并发送日历事项')
-    const message = await getTodayEvents(config.webcalUrl, config.messageTemplate, logger, config.proxy)
+    const message = await getTodayEvents(
+      config.webcalUrl,
+      config.messageTemplate,
+      logger,
+      config.proxy,
+      config.upcomingLimit // 传递配置
+    )
     let sent = false
     for (const t of config.targetId) {
       const target = parseTarget(t)
@@ -152,7 +173,7 @@ export function apply(ctx: Context, config: Config) {
     if (!sent) {
       logger.warn('未配置有效 targetId，定时任务仅生成消息但未发送。')
     }
-  })
+  }, sched)
 
   ctx
     .command('webcal.today')
@@ -161,7 +182,13 @@ export function apply(ctx: Context, config: Config) {
     .action(async () => {
       logger.info('手动指令触发，开始获取日历事项')
       try {
-        const message = await getTodayEvents(config.webcalUrl, config.messageTemplate, logger, config.proxy)
+        const message = await getTodayEvents(
+          config.webcalUrl,
+          config.messageTemplate,
+          logger,
+          config.proxy,
+          config.upcomingLimit // 传递配置
+        )
         // 只返回内容，不推送到 targetId
         return message
       } catch (err: any) {
